@@ -1,0 +1,6 @@
+gymnasium
+pygame
+box2d
+stable-baselines3
+sb3_contrib
+tensorboard

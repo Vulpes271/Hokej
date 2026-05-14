@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: circ_env
+Version: 0.0.1
+Author: Janez Podobnik
+Requires-Dist: gymnasium
+Requires-Dist: pygame
+Requires-Dist: box2d
+Requires-Dist: stable-baselines3
+Requires-Dist: sb3_contrib
+Requires-Dist: tensorboard
+Dynamic: author
+Dynamic: requires-dist
