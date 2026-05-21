@@ -70,6 +70,7 @@ class HockeyEnv(gym.Env):
         self.puck_max_vel = 10.0*np.sqrt(2)
 
         self.time_steps = 500
+        self.prev_puck_goal_distance = 0.0
 
         # Set the observation and action spaces
         #self.observation_space = spaces.Box(low=np.array([0.0, 0.0, 0.0, 0.0, -np.finfo(np.float32).max, -np.finfo(np.float32).max]), high=np.array([self.width, self.height, self.width, self.height, np.finfo(np.float32).max, np.finfo(np.float32).max]), dtype=np.float32)
@@ -132,14 +133,20 @@ class HockeyEnv(gym.Env):
        # Return the initial observation
         return self._get_obs(), {}
     
-    def step(self, action):
+    def step(self, action=None, bottom_mallet_action=None, top_mallet_action=None):
 
         ############ TUKAJ SPREMINJATE
-        action = self.bottom_ai.move()
+        #action = self.bottom_ai.move()
         #action = self.move_agent_mouse()
+        if bottom_mallet_action is not None:
+            action = bottom_mallet_action
+        if action is None:
+            action = np.zeros(2, dtype=np.float32)
+        action = np.clip(np.asarray(action, dtype=np.float32), self.action_space.low, self.action_space.high)
         self.set_agent_velocity(action)
 
-        robot_action = self.top_ai.move()
+        robot_action = self.top_ai.move() if top_mallet_action is None else top_mallet_action
+        robot_action = np.clip(np.asarray(robot_action, dtype=np.float32), self.action_space.low, self.action_space.high)
         self.set_opponent_velocity(robot_action)
 
         self.limit_puck_velocity(self.puck_max_vel)
@@ -147,37 +154,67 @@ class HockeyEnv(gym.Env):
         # Get the current observation, reward, and done flag
         obs = self._get_obs()
         
-        reward = 0
+        puck_pos = self.get_puck_position()
+        puck_vel = self.get_puck_velocity()
+        agent_pos = self.get_agent_position()
+        top_goal_pos = np.array([self.goal_t.position.x, self.goal_t.position.y], dtype=np.float32)
+        bottom_goal_pos = np.array([self.goal_b.position.x, self.goal_b.position.y], dtype=np.float32)
+        dist_to_top_goal = self.calc_distance(puck_pos, top_goal_pos)
+        dist_to_puck = self.calc_distance(agent_pos, puck_pos)
+        puck_goal_progress = self.prev_puck_goal_distance - dist_to_top_goal
+        self.prev_puck_goal_distance = dist_to_top_goal
+
+        reward = -1.0/self.time_steps
+        reward += 0.02*puck_goal_progress
+        reward += -0.001*dist_to_puck
+
+        puck_speed = np.linalg.norm(puck_vel)
+        if puck_speed > 0:
+            goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel/puck_speed)
+            own_goal_component = self.calculate_component(puck_pos, bottom_goal_pos, puck_vel/puck_speed)
+            reward += 0.01*goal_component
+            reward += -0.01*own_goal_component
+
         done = False        
 
         # Check if player (bottom mallet) scored a goal
         if self._is_collision(self.object, self.goal_t):
             self.score_agent += 1
-            reward = 1.0
+            reward += 1.0
             done = True
 
         # Check if opponent (top mallet) scored a goal
         if self._is_collision(self.object, self.goal_b):
             self.score_opponent += 1
-            reward = -1.0
+            reward += -1.0
             done = True            
+
+        if self._is_collision(self.agent, self.object):
+            coll_normal = self.get_puck_position() - self.get_agent_position()
+            coll_normal_norm = np.linalg.norm(coll_normal)
+            if coll_normal_norm > 0:
+                coll_normal = coll_normal/coll_normal_norm
+                F_comp = self.calculate_component(self.get_puck_position(), top_goal_pos, coll_normal)
+                reward += 0.05*F_comp
         
         # Check if episode is too long
         if self.current_step >= self.time_steps:
-            reward = -1.0
             done = True
 
         # Check if player hit the border
-        if self._is_collision(self.agent, self.border):
-            reward = -0.1
+        if self._is_collision(self.agent, self.border) or self._is_collision(self.agent, self.hockey_border) or self._is_collision(self.agent, self.center_line_border_body):
+            reward += -0.1
             done = True            
+
+        if self._is_collision(self.object, self.hockey_border):
+            reward += -0.002
 
         ############ DO TUKAJ SPREMINJATE
         self.current_step += 1
         self.world.Step(TIME_STEP, 6, 2)
         self.world.ClearForces()
 
-        return obs, reward, done, done, {}       
+        return obs, float(reward), bool(done), bool(done), {}       
 
     def render(self, render_mode=None):
         if self.render_mode == "human":
@@ -389,10 +426,12 @@ class HockeyEnv(gym.Env):
         self.opponent.angularVelocity = 0.0
 
     def reset_puck(self):
-        self.object.position = self.random_position(self.object_radius*2, self.dim.rink_top, self.dim.rink_bottom)
-        self.object.linearVelocity = (np.random.uniform(-self.puck_max_vel*0.5, self.puck_max_vel*0.5),
-                np.random.uniform(-self.puck_max_vel*0.5, self.puck_max_vel*0.5))
+        self.object.position = self.random_position(self.object_radius*2, self.dim.center[1], self.dim.rink_bottom)
+        self.object.linearVelocity = (0, 0)
         self.object.angularVelocity = 0.0
+        if hasattr(self, "goal_t"):
+            goal_pos = np.array([self.goal_t.position.x, self.goal_t.position.y], dtype=np.float32)
+            self.prev_puck_goal_distance = self.calc_distance(self.get_puck_position(), goal_pos)
 
     def reset_target(self, position):
         self.target.x = position[0]
@@ -492,7 +531,10 @@ class HockeyEnv(gym.Env):
     def calculate_component(self, pos_agent, pos_target, vel):
         # Calculate the unit vector pointing from pos1 to pos2
         direction = pos_target - pos_agent
-        unit_vector = direction / np.linalg.norm(direction)
+        norm = np.linalg.norm(direction)
+        if norm == 0:
+            return 0.0
+        unit_vector = direction / norm
 
         # Calculate the component of vel in the direction of the unit vector
         component = np.dot(vel, unit_vector)

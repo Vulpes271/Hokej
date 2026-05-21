@@ -45,7 +45,9 @@ class CircleEnvironment(gym.Env):
         ############ TUKAJ SPREMINJATE
 
         agent_radius_px = 30
+        object_radius_px = 30
         self.max_agent_vel = 2.0
+        self.max_puck_vel = 5.0
         
         self.time_steps = 500
 
@@ -53,9 +55,10 @@ class CircleEnvironment(gym.Env):
                                             high=np.array([self.width, self.height, self.width, self.height], dtype=np.float32), dtype=np.float32)
         self.action_space = spaces.Box(low=-self.max_agent_vel, high=self.max_agent_vel, shape=(2,), dtype=np.float32)
 
-        self.create_agent(agent_radius_px) 
-        object_radius_px = 30
-        self.create_puck(object_radius_px, 'k')
+        self.create_agent(agent_radius_px)
+        self.create_puck(object_radius_px, 'd')
+        self.create_goal((400, 10), (self.width/2, 10/self.PPM))
+        self.create_border()
 
         ############ DO TUKAJ SPREMINJATE
         # Set the contact listener
@@ -97,53 +100,41 @@ class CircleEnvironment(gym.Env):
         #action = self.move_agent_mouse()
         self.set_agent_velocity(action) 
 
+        self.limit_puck_velocity(self.max_puck_vel)
         obs = self._get_obs() 
-
-        #self.object.ApplyAngularImpulse(-0.25*self.object.inertia*self.object.angularVelocity, True)
-        #self.object.ApplyForce(-1*self.object.linearVelocity, self.object.worldCenter, True)        
-
-        K = 2000
-        B = 0.5
-        m = 1
-
-        pos_a = self.get_agent_position()
-        pos_p = self.get_puck_position()
-        dist = (self.agent_radius + self.object_radius) - self.calc_distance(pos_a, pos_p)
-
-        FK = np.zeros_like(pos_p)
-        if dist > 0:
-            smer = self.unit_vector(pos_a, pos_p)
-            FK = K * dist * smer
-
-        vel_p = self.get_puck_velocity()
-        FB = -B * vel_p
-
-        F = np.zeros_like(pos_p)
-        acc = np.zeros_like(pos_p)
-        F = FK + FB
-        acc = F / m
-        self.set_puck_velocity(vel_p + acc * TIME_STEP)
 
         reward = -1.0/self.time_steps
         done = False          
 
-        if self._is_collision(self.agent, self.object):
-            reward += 0.05
-            #done = True
-
-        if self.is_puck_outside_screen():
-            reward = 1.0
-            done = True
-
         if self.current_step >= self.time_steps:
             done = True
+
+        if self._is_collision(self.object, self.goal):
+            reward += 1.0
+            done = True
+
+        if self._is_collision(self.agent, self.object):
+            goal_pos = np.array([self.goal.position.x, self.goal.position.y], dtype=np.float32)
+            coll_normal = self.get_puck_position() - self.get_agent_position()
+            coll_normal_norm = np.linalg.norm(coll_normal)
+            if coll_normal_norm > 0:
+                coll_normal = coll_normal/coll_normal_norm
+                F_comp = self.calculate_component(self.get_puck_position(), goal_pos, coll_normal)
+                reward += 0.05*F_comp
+
+        if self._is_collision(self.agent, self.border):
+            reward += -1.0
+            done = True
+
+        if self._is_collision(self.object, self.border):
+            reward += -0.007
 
         ############ DO TUKAJ SPREMINJATE
         self.current_step += 1
         self.world.Step(TIME_STEP, 6, 2)
         self.world.ClearForces()
 
-        return obs, reward, done, done, {}       
+        return obs, float(reward), bool(done), bool(done), {}       
 
     def render(self, render_mode=None):
         if self.render_mode == "human":
@@ -172,8 +163,10 @@ class CircleEnvironment(gym.Env):
 
         ############ TUKAJ SPREMINJATE
 
+        self.draw_border(black)
         self.draw_agent(green)
         self.draw_puck(yellow)
+        self.draw_goal(blue)
 
         ############ DO TUKAJ SPREMINJATE
         if self.render_mode == "human":
@@ -407,7 +400,10 @@ class CircleEnvironment(gym.Env):
     def calculate_component(self, pos_agent, pos_target, vel):
         # Calculate the unit vector pointing from pos1 to pos2
         direction = pos_target - pos_agent
-        unit_vector = direction / np.linalg.norm(direction)
+        norm = np.linalg.norm(direction)
+        if norm == 0:
+            return 0.0
+        unit_vector = direction / norm
 
         # Calculate the component of vel in the direction of the unit vector
         component = np.dot(vel, unit_vector)
