@@ -121,8 +121,9 @@ class HockeyEnv(gym.Env):
         object_pos = self.get_puck_position()
         object_vel = self.get_puck_velocity()
         #target_pos = self.get_target_position()
-        
-        return np.concatenate((agent_pos, agent_vel, opp_pos, opp_vel, object_pos, object_vel), axis=0)
+
+        obs = np.concatenate((agent_pos, agent_vel, opp_pos, opp_vel, object_pos, object_vel), axis=0)
+        return np.clip(obs, self.observation_space.low, self.observation_space.high).astype(np.float32)
     
     def reset(self, seed=None, options=None):
         self.world.ClearForces()
@@ -185,6 +186,7 @@ class HockeyEnv(gym.Env):
         self.limit_puck_velocity(self.puck_max_vel)
 
         self.world.Step(TIME_STEP, 6, 2)
+        self.limit_puck_velocity(self.puck_max_vel)
         self.world.ClearForces()
         self.current_step += 1
         
