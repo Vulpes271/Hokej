@@ -1,8 +1,12 @@
 services:
   hockey-train:
     gpus:
-      - all
+      - driver: nvidia
+        device_ids:
+          - "1"
+        capabilities:
+          - gpu
     command: python train_hockey.py --device cuda --envs ${HOCKEY_ENVS:-1}
     environment:
-      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_VISIBLE_DEVICES: "1"
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
