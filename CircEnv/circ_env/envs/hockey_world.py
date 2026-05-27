@@ -135,15 +135,16 @@ class HockeyEnv(gym.Env):
         self.reset_puck()
 
         puck_pos = self.get_puck_position()
+        min_x, max_x, min_y, max_y = self.agent_safe_bounds()
         agent_x = np.clip(
             puck_pos[0] + np.random.uniform(-0.45, 0.45),
-            self.dim.rink_left/self.PPM + self.agent_radius,
-            self.dim.rink_right/self.PPM - self.agent_radius,
+            min_x,
+            max_x,
         )
         agent_y = np.clip(
             puck_pos[1] + np.random.uniform(0.7, 1.4),
-            self.dim.center[1]/self.PPM + self.agent_radius,
-            self.dim.rink_bottom/self.PPM - self.agent_radius,
+            min_y,
+            max_y,
         )
         self.agent.position = b2Vec2(float(agent_x), float(agent_y))
         self.agent.linearVelocity = (0, 0)
@@ -274,11 +275,19 @@ class HockeyEnv(gym.Env):
             done = True
             termination_reason = termination_reason or "timeout"
 
-        # Check if player hit the border
-        if self._is_collision(self.agent, self.border) or self._is_collision(self.agent, self.hockey_border) or self._is_collision(self.agent, self.center_line_border_body):
+        hit_table_border = self._is_collision(self.agent, self.border)
+        hit_hockey_border = self._is_collision(self.agent, self.hockey_border)
+        hit_center_line = self._is_collision(self.agent, self.center_line_border_body)
+        if hit_table_border or hit_hockey_border or hit_center_line:
             reward += -35.0
             done = True            
-            termination_reason = termination_reason or "agent_border"
+            if hit_center_line:
+                border_reason = "agent_center_line"
+            elif hit_hockey_border:
+                border_reason = "agent_hockey_border"
+            else:
+                border_reason = "agent_table_border"
+            termination_reason = termination_reason or border_reason
 
         if self._is_collision(self.object, self.hockey_border):
             reward += -0.03
@@ -603,32 +612,32 @@ class HockeyEnv(gym.Env):
             goal_direction = goal_direction/goal_direction_norm
 
         ideal_pos = puck_pos - goal_direction*0.75
+        min_x, max_x, min_y, max_y = self.agent_safe_bounds()
         return np.array([
-            np.clip(
-                ideal_pos[0],
-                self.dim.rink_left/self.PPM + self.agent_radius,
-                self.dim.rink_right/self.PPM - self.agent_radius,
-            ),
-            np.clip(
-                ideal_pos[1],
-                self.dim.center[1]/self.PPM + self.agent_radius,
-                self.dim.rink_bottom/self.PPM - self.agent_radius,
-            ),
+            np.clip(ideal_pos[0], min_x, max_x),
+            np.clip(ideal_pos[1], min_y, max_y),
         ], dtype=np.float32)
 
     def agent_safety_margin(self, agent_pos):
-        left_margin = agent_pos[0] - (self.dim.rink_left/self.PPM + self.agent_radius)
-        right_margin = (self.dim.rink_right/self.PPM - self.agent_radius) - agent_pos[0]
-        center_margin = agent_pos[1] - (self.dim.center[1]/self.PPM + self.agent_radius)
-        bottom_margin = (self.dim.rink_bottom/self.PPM - self.agent_radius) - agent_pos[1]
+        min_x, max_x, min_y, max_y = self.agent_safe_bounds()
+        left_margin = agent_pos[0] - min_x
+        right_margin = max_x - agent_pos[0]
+        center_margin = agent_pos[1] - min_y
+        bottom_margin = max_y - agent_pos[1]
         return min(left_margin, right_margin, center_margin, bottom_margin)
+
+    def agent_safe_bounds(self):
+        boundary_buffer = 0.35
+        return (
+            self.dim.rink_left/self.PPM + self.agent_radius + boundary_buffer,
+            self.dim.rink_right/self.PPM - self.agent_radius - boundary_buffer,
+            self.dim.center[1]/self.PPM + self.agent_radius + 0.15,
+            self.dim.rink_bottom/self.PPM - self.agent_radius - boundary_buffer,
+        )
 
     def constrain_agent_action(self, action):
         agent_pos = self.get_agent_position()
-        min_x = self.dim.rink_left/self.PPM + self.agent_radius
-        max_x = self.dim.rink_right/self.PPM - self.agent_radius
-        min_y = self.dim.center[1]/self.PPM + self.agent_radius
-        max_y = self.dim.rink_bottom/self.PPM - self.agent_radius
+        min_x, max_x, min_y, max_y = self.agent_safe_bounds()
 
         next_pos = agent_pos + action*TIME_STEP
         clipped_next_pos = np.array([
