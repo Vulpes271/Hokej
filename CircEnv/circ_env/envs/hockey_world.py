@@ -217,6 +217,10 @@ class HockeyEnv(gym.Env):
         if dist_to_ideal_agent_pos < 0.35:
             reward += 0.003
 
+        safety_margin = self.agent_safety_margin(agent_pos)
+        if safety_margin < 0.45:
+            reward += -0.08*(0.45 - safety_margin)
+
         reward += -0.001*action_norm
         reward += -0.01*action_change
 
@@ -267,7 +271,7 @@ class HockeyEnv(gym.Env):
 
         # Check if player hit the border
         if self._is_collision(self.agent, self.border) or self._is_collision(self.agent, self.hockey_border) or self._is_collision(self.agent, self.center_line_border_body):
-            reward += -2.0
+            reward += -35.0
             done = True            
             termination_reason = termination_reason or "agent_border"
 
@@ -606,6 +610,13 @@ class HockeyEnv(gym.Env):
                 self.dim.rink_bottom/self.PPM - self.agent_radius,
             ),
         ], dtype=np.float32)
+
+    def agent_safety_margin(self, agent_pos):
+        left_margin = agent_pos[0] - (self.dim.rink_left/self.PPM + self.agent_radius)
+        right_margin = (self.dim.rink_right/self.PPM - self.agent_radius) - agent_pos[0]
+        center_margin = agent_pos[1] - (self.dim.center[1]/self.PPM + self.agent_radius)
+        bottom_margin = (self.dim.rink_bottom/self.PPM - self.agent_radius) - agent_pos[1]
+        return min(left_margin, right_margin, center_margin, bottom_margin)
         
     def unit_vector(self, pos1, pos2):
         direction = pos2 - pos1

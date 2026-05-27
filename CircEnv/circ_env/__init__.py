@@ -9,5 +9,5 @@ register(
 register(
      id="circ_env/AirHockey-v0",
      entry_point="circ_env.envs:HockeyEnv",
-     max_episode_steps=500,
+     max_episode_steps=800,
 )
