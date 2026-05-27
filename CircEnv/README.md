@@ -68,3 +68,16 @@ pip install -e CircEnv
 
 pip install box2d box2d-kengz
 ```
+
+## Docker trening
+
+Za trening na Linux racunalniku uporabi navodila v `../README.md`.
+
+Kratek povzetek:
+
+```console
+git clone https://github.com/Vulpes271/Hokej.git
+cd Hokej
+docker compose up -d --build hockey-train
+docker compose logs -f hockey-train
+```
