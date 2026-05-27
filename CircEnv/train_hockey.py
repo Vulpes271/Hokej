@@ -67,7 +67,9 @@ def build_model(env, resume=False):
     checkpoint = latest_checkpoint(MODELS_DIR) if resume else None
     if checkpoint is not None:
         print(f"Resuming from {checkpoint}")
-        return TQC.load(str(checkpoint), env=env), checkpoint_step(checkpoint, MODELS_DIR)
+        model = TQC.load(str(checkpoint), env=env)
+        model.tensorboard_log = str(LOG_DIR)
+        return model, checkpoint_step(checkpoint, MODELS_DIR)
 
     policy_kwargs = dict(
         n_critics=2,
