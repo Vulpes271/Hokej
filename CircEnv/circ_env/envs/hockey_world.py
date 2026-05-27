@@ -172,6 +172,9 @@ class HockeyEnv(gym.Env):
         if action is None:
             action = np.zeros(2, dtype=np.float32)
         action = np.clip(np.asarray(action, dtype=np.float32), self.action_space.low, self.action_space.high)
+        requested_action = action.copy()
+        action = self.constrain_agent_action(action)
+        agent_action_clipped = np.linalg.norm(action - requested_action) > 1e-6
         self.set_agent_velocity(action)
 
         robot_action = self.top_ai.move() if top_mallet_action is None else top_mallet_action
@@ -223,6 +226,8 @@ class HockeyEnv(gym.Env):
 
         reward += -0.001*action_norm
         reward += -0.01*action_change
+        if agent_action_clipped:
+            reward += -0.5
 
         if puck_speed > 0:
             goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
@@ -617,6 +622,29 @@ class HockeyEnv(gym.Env):
         center_margin = agent_pos[1] - (self.dim.center[1]/self.PPM + self.agent_radius)
         bottom_margin = (self.dim.rink_bottom/self.PPM - self.agent_radius) - agent_pos[1]
         return min(left_margin, right_margin, center_margin, bottom_margin)
+
+    def constrain_agent_action(self, action):
+        agent_pos = self.get_agent_position()
+        min_x = self.dim.rink_left/self.PPM + self.agent_radius
+        max_x = self.dim.rink_right/self.PPM - self.agent_radius
+        min_y = self.dim.center[1]/self.PPM + self.agent_radius
+        max_y = self.dim.rink_bottom/self.PPM - self.agent_radius
+
+        next_pos = agent_pos + action*TIME_STEP
+        clipped_next_pos = np.array([
+            np.clip(next_pos[0], min_x, max_x),
+            np.clip(next_pos[1], min_y, max_y),
+        ], dtype=np.float32)
+
+        if np.allclose(next_pos, clipped_next_pos):
+            return action
+
+        constrained_action = (clipped_next_pos - agent_pos)/TIME_STEP
+        return np.clip(
+            constrained_action,
+            self.action_space.low,
+            self.action_space.high,
+        ).astype(np.float32)
         
     def unit_vector(self, pos1, pos2):
         direction = pos2 - pos1
