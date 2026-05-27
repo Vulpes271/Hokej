@@ -1,6 +1,7 @@
 services:
   hockey-train:
-    gpus: all
+    gpus:
+      - all
     command: python train_hockey.py --device cuda --envs ${HOCKEY_ENVS:-1}
     environment:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
