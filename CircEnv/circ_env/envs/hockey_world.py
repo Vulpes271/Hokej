@@ -73,6 +73,7 @@ class HockeyEnv(gym.Env):
         self.prev_agent_puck_distance = 0.0
         self.prev_puck_goal_distance = 0.0
         self.prev_ideal_agent_distance = 0.0
+        self.prev_puck_speed = 0.0
         self.prev_action = np.zeros(2, dtype=np.float32)
 
         # Set the observation and action spaces
@@ -155,6 +156,7 @@ class HockeyEnv(gym.Env):
             self.get_agent_position(),
             self.ideal_agent_position(self.get_puck_position(), top_goal_pos),
         )
+        self.prev_puck_speed = np.linalg.norm(self.get_puck_velocity())
         self.prev_action = np.zeros(2, dtype=np.float32)
         
        # Return the initial observation
@@ -200,6 +202,8 @@ class HockeyEnv(gym.Env):
 
         action_norm = np.linalg.norm(action)
         action_change = np.linalg.norm(action - self.prev_action)
+        puck_speed = np.linalg.norm(puck_vel)
+        puck_speed_gain = puck_speed - self.prev_puck_speed
 
         reward = -1.0/self.time_steps
         reward += 0.20*np.clip(agent_puck_progress, -0.08, 0.08)
@@ -211,12 +215,11 @@ class HockeyEnv(gym.Env):
         if dist_to_puck < 1.2 and behind_puck:
             reward += 0.01*x_alignment
         if dist_to_ideal_agent_pos < 0.35:
-            reward += 0.01
+            reward += 0.003
 
         reward += -0.001*action_norm
         reward += -0.01*action_change
 
-        puck_speed = np.linalg.norm(puck_vel)
         if puck_speed > 0:
             goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
             own_goal_component = self.calculate_component(puck_pos, bottom_goal_pos, puck_vel)
@@ -225,43 +228,59 @@ class HockeyEnv(gym.Env):
         elif action_norm < 0.2:
             reward += -0.01
 
-        done = False        
+        done = False
+        termination_reason = None
 
         # Check if player (bottom mallet) scored a goal
         if self._is_collision(self.object, self.goal_t):
             self.score_agent += 1
             reward += 100.0
             done = True
+            termination_reason = "agent_goal"
 
         # Check if opponent (top mallet) scored a goal
         if self._is_collision(self.object, self.goal_b):
             self.score_opponent += 1
             reward += -100.0
             done = True            
+            termination_reason = termination_reason or "opponent_goal"
 
-        if self._is_collision(self.agent, self.object):
+        hit_contact = (
+            self._is_collision(self.agent, self.object)
+            or dist_to_puck <= self.agent_radius + self.object_radius + 0.12
+        )
+        if hit_contact:
             goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
-            reward += 0.5*max(0.0, goal_component)
-            reward += -0.2*max(0.0, -goal_component)
+            forward_hit_speed = max(0.0, goal_component - 1.0)
+            useful_speed_gain = max(0.0, puck_speed_gain - 0.25)
+            reward += 0.45*np.clip(forward_hit_speed, 0.0, self.puck_max_vel)
+            reward += 0.20*np.clip(useful_speed_gain, 0.0, self.puck_max_vel)
+            reward += -0.25*max(0.0, -goal_component)
+            if puck_speed < 1.0:
+                reward += -0.08
         
         # Check if episode is too long
         if self.current_step >= self.time_steps:
             reward += -0.5
             done = True
+            termination_reason = termination_reason or "timeout"
 
         # Check if player hit the border
         if self._is_collision(self.agent, self.border) or self._is_collision(self.agent, self.hockey_border) or self._is_collision(self.agent, self.center_line_border_body):
             reward += -2.0
             done = True            
+            termination_reason = termination_reason or "agent_border"
 
         if self._is_collision(self.object, self.hockey_border):
             reward += -0.03
 
         ############ DO TUKAJ SPREMINJATE
         self.prev_action = action.copy()
+        self.prev_puck_speed = puck_speed
         obs = self._get_obs()
+        info = {"termination_reason": termination_reason}
 
-        return obs, float(reward), bool(done), bool(done), {}       
+        return obs, float(reward), bool(done), bool(done), info
 
     def render(self, render_mode=None):
         if self.render_mode == "human":

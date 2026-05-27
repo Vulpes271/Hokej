@@ -1,9 +1,11 @@
 import argparse
 import csv
 import shutil
+from collections import Counter
 from pathlib import Path
 
 import gymnasium as gym
+import numpy as np
 from sb3_contrib import TQC
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.env_util import make_vec_env
@@ -22,6 +24,14 @@ ENV_FILE = SCRIPT_DIR / "circ_env" / "envs" / "hockey_world.py"
 PROFESSOR_MODEL_PATHS = [
     SCRIPT_DIR / "models" / "TQC02" / "280000",
     SCRIPT_DIR.parent / "models" / "TQC02" / "280000",
+]
+TERMINATION_REASONS = [
+    "agent_goal",
+    "opponent_goal",
+    "agent_border",
+    "timeout",
+    "time_limit",
+    "unknown",
 ]
 
 
@@ -64,6 +74,31 @@ def append_csv(path, row, header):
         if new_file:
             writer.writerow(header)
         writer.writerow(row)
+
+
+def evaluate_termination_reasons(model, episodes):
+    reasons = Counter()
+    eval_env = gym.make("circ_env/AirHockey-v0")
+    try:
+        for _ in range(episodes):
+            obs, _ = eval_env.reset()
+            done = False
+            last_info = {}
+            while not done:
+                action, _state = model.predict(obs, deterministic=True)
+                obs, _reward, terminated, truncated, last_info = eval_env.step(
+                    np.asarray(action).squeeze()
+                )
+                done = terminated or truncated
+
+            reason = last_info.get("termination_reason")
+            if reason is None and truncated:
+                reason = "time_limit"
+            reasons[reason or "unknown"] += 1
+    finally:
+        eval_env.close()
+
+    return reasons
 
 
 def resolve_device(requested_device):
@@ -160,6 +195,7 @@ def main():
     best_reward = -float("inf")
     rewards_csv = MODELS_DIR / "rewards.csv"
     best_rewards_csv = MODELS_DIR / "best_rewards.csv"
+    termination_reasons_csv = MODELS_DIR / "termination_reasons.csv"
 
     iters = 0
     while args.iterations == 0 or iters < args.iterations:
@@ -183,6 +219,22 @@ def main():
             [total_steps, mean_reward, std_reward],
             ["step", "mean reward", "std reward"],
         )
+
+        termination_reasons = evaluate_termination_reasons(model, args.eval_episodes)
+        termination_row = [total_steps] + [
+            termination_reasons.get(reason, 0)
+            for reason in TERMINATION_REASONS
+        ]
+        append_csv(
+            termination_reasons_csv,
+            termination_row,
+            ["step"] + TERMINATION_REASONS,
+        )
+        reason_summary = ", ".join(
+            f"{reason}={termination_reasons.get(reason, 0)}"
+            for reason in TERMINATION_REASONS
+        )
+        print(f"Termination reasons: {reason_summary}")
 
         checkpoint_path = MODELS_DIR / str(total_steps)
         model.save(str(checkpoint_path))
