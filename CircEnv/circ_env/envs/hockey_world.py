@@ -209,10 +209,10 @@ class HockeyEnv(gym.Env):
         puck_speed = np.linalg.norm(puck_vel)
         puck_speed_gain = puck_speed - self.prev_puck_speed
 
-        reward = -1.0/self.time_steps
-        reward += 0.20*np.clip(agent_puck_progress, -0.08, 0.08)
-        reward += 1.25*np.clip(ideal_agent_progress, -0.08, 0.08)
-        reward += 3.50*np.clip(puck_goal_progress, -0.12, 0.12)
+        reward = -0.2/self.time_steps
+        reward += 0.35*np.clip(agent_puck_progress, -0.08, 0.08)
+        reward += 0.80*np.clip(ideal_agent_progress, -0.08, 0.08)
+        reward += 5.00*np.clip(puck_goal_progress, -0.12, 0.12)
 
         behind_puck = agent_pos[1] > puck_pos[1]
         x_alignment = max(0.0, 1.0 - abs(agent_pos[0] - puck_pos[0])/0.8)
@@ -233,7 +233,7 @@ class HockeyEnv(gym.Env):
         if puck_speed > 0:
             goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
             own_goal_component = self.calculate_component(puck_pos, bottom_goal_pos, puck_vel)
-            reward += 0.05*np.clip(goal_component, -self.puck_max_vel, self.puck_max_vel)
+            reward += 0.10*np.clip(goal_component, -self.puck_max_vel, self.puck_max_vel)
             reward += -0.08*np.clip(own_goal_component, -self.puck_max_vel, self.puck_max_vel)
         elif action_norm < 0.2:
             reward += -0.01
@@ -261,17 +261,22 @@ class HockeyEnv(gym.Env):
         )
         if hit_contact:
             goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
-            forward_hit_speed = max(0.0, goal_component - 1.0)
-            useful_speed_gain = max(0.0, puck_speed_gain - 0.25)
-            reward += 0.45*np.clip(forward_hit_speed, 0.0, self.puck_max_vel)
-            reward += 0.20*np.clip(useful_speed_gain, 0.0, self.puck_max_vel)
+            forward_hit_speed = max(0.0, goal_component - 0.5)
+            useful_speed_gain = max(0.0, puck_speed_gain - 0.10)
+            reward += 0.90*np.clip(forward_hit_speed, 0.0, self.puck_max_vel)
+            reward += 0.35*np.clip(useful_speed_gain, 0.0, self.puck_max_vel)
             reward += -0.25*max(0.0, -goal_component)
             if puck_speed < 1.0:
                 reward += -0.08
         
         # Check if episode is too long
         if self.current_step >= self.time_steps:
-            reward += -0.5
+            normalized_goal_distance = np.clip(
+                dist_to_top_goal / self.height,
+                0.0,
+                1.0,
+            )
+            reward += -10.0*normalized_goal_distance
             done = True
             termination_reason = termination_reason or "timeout"
 
