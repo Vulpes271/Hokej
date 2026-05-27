@@ -17,6 +17,7 @@ RUN apt-get update \
 COPY CircEnv ./CircEnv
 
 RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch==2.5.1+cu124 --extra-index-url https://download.pytorch.org/whl/cu124 \
     && pip install --no-cache-dir -e ./CircEnv
 
 WORKDIR /app/CircEnv

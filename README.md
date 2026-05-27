@@ -41,6 +41,27 @@ Zacni trening na novo:
 docker compose run --rm hockey-train python train_hockey.py --fresh
 ```
 
+## Zagon z NVIDIA GPU
+
+Na racunalniku z NVIDIA Docker runtime lahko trening zazenes z GPU override datoteko:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build hockey-train
+docker compose logs -f hockey-train
+```
+
+Privzeto se zazene z enim okoljem, kar je najbolj varno za nadaljevanje obstojecih checkpointov. Za vec hitrosti lahko poskusis vec paralelnih okolij:
+
+```bash
+HOCKEY_ENVS=4 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build hockey-train
+```
+
+Za izbor samo ene graficne kartice nastavi `NVIDIA_VISIBLE_DEVICES`. Primer za drugo kartico:
+
+```bash
+NVIDIA_VISIBLE_DEVICES=1 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build hockey-train
+```
+
 ## TensorBoard
 
 Zazeni TensorBoard:

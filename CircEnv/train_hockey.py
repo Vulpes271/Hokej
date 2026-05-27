@@ -6,6 +6,9 @@ from pathlib import Path
 import gymnasium as gym
 from sb3_contrib import TQC
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
+import torch
 from torch import nn
 
 import circ_env
@@ -63,11 +66,47 @@ def append_csv(path, row, header):
         writer.writerow(row)
 
 
-def build_model(env, resume=False):
+def resolve_device(requested_device):
+    if requested_device == "auto":
+        requested_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available; falling back to CPU.")
+        return "cpu"
+
+    if requested_device == "cuda":
+        print(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+    else:
+        print("Using CPU.")
+
+    return requested_device
+
+
+def make_training_env(num_envs):
+    if num_envs <= 1:
+        return gym.make("circ_env/AirHockey-v0")
+
+    return make_vec_env(
+        "circ_env/AirHockey-v0",
+        n_envs=num_envs,
+        vec_env_cls=SubprocVecEnv,
+    )
+
+
+def num_envs(env):
+    return getattr(env, "num_envs", 1)
+
+
+def build_model(env, resume=False, device="auto"):
     checkpoint = latest_checkpoint(MODELS_DIR) if resume else None
     if checkpoint is not None:
         print(f"Resuming from {checkpoint}")
-        model = TQC.load(str(checkpoint), env=env)
+        model = TQC.load(
+            str(checkpoint),
+            env=env,
+            device=device,
+            custom_objects={"n_envs": num_envs(env)},
+        )
         model.tensorboard_log = str(LOG_DIR)
         return model, checkpoint_step(checkpoint, MODELS_DIR)
 
@@ -92,6 +131,7 @@ def build_model(env, resume=False):
         learning_rate=3e-4,
         tau=0.02,
         ent_coef="auto",
+        device=device,
     )
     return model, 0
 
@@ -101,6 +141,8 @@ def main():
     parser.add_argument("--timesteps", type=int, default=10_000)
     parser.add_argument("--iterations", type=int, default=0, help="0 pomeni, da tece do Ctrl+C.")
     parser.add_argument("--eval-episodes", type=int, default=10)
+    parser.add_argument("--envs", type=int, default=1, help="Stevilo paralelnih okolij za zbiranje izkusenj.")
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--fresh", action="store_true", help="Zacne nov model namesto nadaljevanja checkpointa.")
     parser.add_argument("--resume", action="store_true", help="Ohranjeno zaradi kompatibilnosti; resume je privzet.")
     args = parser.parse_args()
@@ -110,8 +152,10 @@ def main():
     shutil.copy(__file__, MODELS_DIR / Path(__file__).name)
     shutil.copy(ENV_FILE, MODELS_DIR / ENV_FILE.name)
 
-    env = gym.make("circ_env/AirHockey-v0")
-    model, start_steps = build_model(env, resume=not args.fresh)
+    device = resolve_device(args.device)
+    env = make_training_env(args.envs)
+    print(f"Using {args.envs} training environment(s).")
+    model, start_steps = build_model(env, resume=not args.fresh, device=device)
 
     best_reward = -float("inf")
     rewards_csv = MODELS_DIR / "rewards.csv"
