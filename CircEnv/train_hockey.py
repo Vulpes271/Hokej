@@ -17,9 +17,9 @@ import circ_env
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-METHOD_DIR_NAME = "TQC_hockey_active_goal"
+METHOD_DIR_NAME = "TQC_hockey_wide_goal"
 MODELS_DIR = SCRIPT_DIR / "models" / METHOD_DIR_NAME
-LOG_DIR = SCRIPT_DIR / "logs_hockey_active_goal"
+LOG_DIR = SCRIPT_DIR / "logs_hockey_wide_goal"
 ENV_FILE = SCRIPT_DIR / "circ_env" / "envs" / "hockey_world.py"
 PROFESSOR_MODEL_PATHS = [
     SCRIPT_DIR / "models" / "TQC02" / "280000",
