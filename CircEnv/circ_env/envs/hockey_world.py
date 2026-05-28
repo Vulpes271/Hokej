@@ -203,11 +203,12 @@ class HockeyEnv(gym.Env):
         action_norm = np.linalg.norm(action)
         puck_speed = np.linalg.norm(puck_vel)
 
-        reward = -0.5/self.time_steps
-        reward += 0.25*np.clip(agent_puck_progress, -0.05, 0.05)
-        reward += 1.25*np.clip(puck_goal_progress, -0.08, 0.08)
-        reward += 0.01*(1.0 - np.clip(dist_to_puck/self.height, 0.0, 1.0))
+        reward = -1.0/self.time_steps
+        reward += 0.35*np.clip(agent_puck_progress, -0.05, 0.05)
+        reward += 2.00*np.clip(puck_goal_progress, -0.08, 0.08)
         reward += -0.0001*action_norm
+        if action_norm < 0.05 and puck_speed < 0.05:
+            reward += -0.01
         if agent_action_clipped:
             reward += -0.2
 
@@ -225,14 +226,14 @@ class HockeyEnv(gym.Env):
         # Check if player (bottom mallet) scored a goal
         if self._is_collision(self.object, self.goal_t):
             self.score_agent += 1
-            reward += 10.0
+            reward += 50.0
             done = True
             termination_reason = "agent_goal"
 
         # Check if opponent (top mallet) scored a goal
         if self._is_collision(self.object, self.goal_b):
             self.score_opponent += 1
-            reward += -10.0
+            reward += -25.0
             done = True            
             termination_reason = termination_reason or "opponent_goal"
 
@@ -252,7 +253,7 @@ class HockeyEnv(gym.Env):
         
         # Check if episode is too long
         if self.current_step >= self.time_steps:
-            reward += -0.5
+            reward += -5.0
             done = True
             termination_reason = termination_reason or "timeout"
 
